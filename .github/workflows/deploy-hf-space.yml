@@ -1,0 +1,45 @@
+# Fork'a özel workflow: hf-space/ içeriğini Hugging Face Space'e dağıtır.
+# HF_TOKEN secret'ı tanımlı değilse iş sessizce atlanır; böylece upstream
+# senkronizasyonları workflow hatası üretmez.
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: hf-space-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'esenocak'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check HF_TOKEN
+        id: token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -n "$HF_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "HF_TOKEN secret is not configured; skipping deploy."
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.token.outputs.available == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Deploy Space
+        if: steps.token.outputs.available == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install --quiet "huggingface_hub>=0.34"
+          python hf-space/deploy.py
