@@ -1,0 +1,124 @@
+# Fork'a özel workflow: MoneyPrinterTurbo ile sunucusuz video üretimi.
+# Actions sekmesinden "Run workflow" ile tetiklenir; üretilen MP4'ler
+# çalıştırma sayfasından artifact olarak indirilir (7 gün saklanır).
+# GEMINI_API_KEY ve PEXELS_API_KEY repo secret'ı olarak tanımlı olmalıdır.
+name: Generate Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Video konusu"
+        required: true
+        type: string
+      language:
+        description: "Senaryo dili"
+        type: choice
+        default: "tr-TR"
+        options: ["tr-TR", "en-US"]
+      voice:
+        description: "Seslendirme"
+        type: choice
+        default: "tr-TR-EmelNeural-Female"
+        options:
+          - "tr-TR-EmelNeural-Female"
+          - "tr-TR-AhmetNeural-Male"
+          - "en-US-JennyNeural-Female"
+          - "en-US-GuyNeural-Male"
+      aspect:
+        description: "En-boy oranı"
+        type: choice
+        default: "9:16"
+        options: ["9:16", "16:9", "1:1"]
+      count:
+        description: "Video adedi"
+        type: choice
+        default: "1"
+        options: ["1", "2", "3"]
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'esenocak'
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: |
+          missing=""
+          [ -z "$GEMINI_API_KEY" ] && missing="$missing GEMINI_API_KEY"
+          [ -z "$PEXELS_API_KEY" ] && missing="$missing PEXELS_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Eksik repo secret'ları:$missing — Settings > Secrets and variables > Actions altına ekleyin."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install --quiet -r requirements.txt
+
+      - name: Write config.toml from secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+
+          def toml_str(value: str) -> str:
+              return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+          text = open("config.example.toml", encoding="utf-8").read()
+          text = text.replace('llm_provider = "moonshot"', 'llm_provider = "gemini"', 1)
+          text = text.replace(
+              'gemini_api_key = ""',
+              f"gemini_api_key = {toml_str(os.environ['GEMINI_API_KEY'])}",
+              1,
+          )
+          text = text.replace(
+              "pexels_api_keys = []",
+              f"pexels_api_keys = [{toml_str(os.environ['PEXELS_API_KEY'])}]",
+              1,
+          )
+          open("config.toml", "w", encoding="utf-8").write(text)
+          print("config.toml hazır")
+          PY
+
+      - name: Generate video
+        env:
+          TOPIC: ${{ inputs.topic }}
+          LANGUAGE: ${{ inputs.language }}
+          VOICE: ${{ inputs.voice }}
+          ASPECT: ${{ inputs.aspect }}
+          COUNT: ${{ inputs.count }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python3 cli.py \
+            --video-subject "$TOPIC" \
+            --video-language "$LANGUAGE" \
+            --voice-name "$VOICE" \
+            --video-aspect "$ASPECT" \
+            --video-count "$COUNT"
+
+      - name: Upload videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: videolar
+          path: |
+            storage/tasks/**/final-*.mp4
+            storage/tasks/**/script.json
+          retention-days: 7
+          if-no-files-found: error
