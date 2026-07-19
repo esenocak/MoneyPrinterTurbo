@@ -83,6 +83,11 @@ jobs:
 
           text = open("config.example.toml", encoding="utf-8").read()
           text = text.replace('llm_provider = "moonshot"', 'llm_provider = "gemini"', 1)
+          # Varsayılan model (gemini-3.1-pro-preview) ücretsiz katmanda kota
+          # vermiyor; ücretsiz anahtarlarla çalışan modeli sabitle.
+          text = text.replace(
+              'gemini_model_name = ""', 'gemini_model_name = "gemini-2.5-flash"', 1
+          )
           text = text.replace(
               'gemini_api_key = ""',
               f"gemini_api_key = {toml_str(os.environ['GEMINI_API_KEY'])}",
