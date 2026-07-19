@@ -17,7 +17,7 @@ on:
         default: "tr-TR"
         options: ["tr-TR", "en-US"]
       voice:
-        description: "Seslendirme"
+        description: "Seslendirme (gemini:* sesleri Edge TTS engellenirse yedektir; Gemini anahtarını kullanır)"
         type: choice
         default: "tr-TR-EmelNeural-Female"
         options:
@@ -25,6 +25,8 @@ on:
           - "tr-TR-AhmetNeural-Male"
           - "en-US-JennyNeural-Female"
           - "en-US-GuyNeural-Male"
+          - "gemini:Zephyr-Female"
+          - "gemini:Puck-Male"
       aspect:
         description: "En-boy oranı"
         type: choice
