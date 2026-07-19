@@ -37,6 +37,11 @@ on:
         type: choice
         default: "1"
         options: ["1", "2", "3"]
+      source:
+        description: "Stok video kaynağı (ilgili API key secret'ı gerekir)"
+        type: choice
+        default: "pixabay"
+        options: ["pixabay", "pexels"]
 
 jobs:
   generate:
@@ -48,10 +53,13 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          SOURCE: ${{ inputs.source }}
         run: |
           missing=""
           [ -z "$GEMINI_API_KEY" ] && missing="$missing GEMINI_API_KEY"
-          [ -z "$PEXELS_API_KEY" ] && missing="$missing PEXELS_API_KEY"
+          [ "$SOURCE" = "pexels" ] && [ -z "$PEXELS_API_KEY" ] && missing="$missing PEXELS_API_KEY"
+          [ "$SOURCE" = "pixabay" ] && [ -z "$PIXABAY_API_KEY" ] && missing="$missing PIXABAY_API_KEY"
           if [ -n "$missing" ]; then
             echo "::error::Eksik repo secret'ları:$missing — Settings > Secrets and variables > Actions altına ekleyin."
             exit 1
@@ -76,6 +84,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           python3 - <<'PY'
           import os
@@ -95,11 +104,16 @@ jobs:
               f"gemini_api_key = {toml_str(os.environ['GEMINI_API_KEY'])}",
               1,
           )
-          text = text.replace(
-              "pexels_api_keys = []",
-              f"pexels_api_keys = [{toml_str(os.environ['PEXELS_API_KEY'])}]",
-              1,
-          )
+          pexels = os.environ.get("PEXELS_API_KEY", "").strip()
+          pixabay = os.environ.get("PIXABAY_API_KEY", "").strip()
+          if pexels:
+              text = text.replace(
+                  "pexels_api_keys = []", f"pexels_api_keys = [{toml_str(pexels)}]", 1
+              )
+          if pixabay:
+              text = text.replace(
+                  "pixabay_api_keys = []", f"pixabay_api_keys = [{toml_str(pixabay)}]", 1
+              )
           open("config.toml", "w", encoding="utf-8").write(text)
           print("config.toml hazır")
           PY
@@ -111,6 +125,7 @@ jobs:
           VOICE: ${{ inputs.voice }}
           ASPECT: ${{ inputs.aspect }}
           COUNT: ${{ inputs.count }}
+          SOURCE: ${{ inputs.source }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python3 cli.py \
@@ -118,7 +133,8 @@ jobs:
             --video-language "$LANGUAGE" \
             --voice-name "$VOICE" \
             --video-aspect "$ASPECT" \
-            --video-count "$COUNT"
+            --video-count "$COUNT" \
+            --video-source "$SOURCE"
 
       - name: Upload videos
         uses: actions/upload-artifact@v4
