@@ -212,8 +212,11 @@ Output and exit status:
     material_group.add_argument(
         "--video-source",
         default="pexels",
-        choices=["pexels", "pixabay", "coverr", "local"],
-        help="video material provider; online providers require matching API keys in config.toml",
+        choices=["pexels", "pixabay", "coverr", "wikimedia", "local"],
+        help=(
+            "video material provider; pexels/pixabay/coverr require matching API "
+            "keys in config.toml, wikimedia needs no API key"
+        ),
     )
     material_group.add_argument(
         "--video-materials",
