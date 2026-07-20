@@ -241,6 +241,104 @@ def search_videos_coverr(
     return []
 
 
+def search_videos_wikimedia(
+    search_term: str,
+    minimum_duration: int,
+    video_aspect: VideoAspect = VideoAspect.portrait,
+) -> List[MaterialInfo]:
+    """
+    Wikimedia Commons (https://commons.wikimedia.org) - freely licensed
+    (public domain / Creative Commons) videos, no API key required.
+
+    注意事项:
+      - Commons 只接受自由格式(webm/ogv),没有 mp4;save_video 按内容
+        探测格式,ffmpeg/moviepy 不依赖扩展名,可直接处理。
+      - 内容为社区上传,相关性和画质普遍低于商业素材库,定位是
+        "无 API key 的兜底来源"。
+      - 部分 CC 许可要求署名;发布视频前请自行确认所选素材的许可条款。
+    """
+    aspect = VideoAspect(video_aspect)
+    video_width, video_height = aspect.to_resolution()
+    # 横竖屏都以 1080 为参考;Commons 素材横屏为主,较小的分辨率交给
+    # 下游 video.py 的 resize/letterbox 逻辑统一处理。
+    preferred_width = min(video_width, video_height)
+
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": f"filetype:video {search_term}",
+        "gsrnamespace": 6,
+        "gsrlimit": 20,
+        "prop": "videoinfo",
+        "viprop": "url|size|derivatives",
+    }
+    query_url = f"https://commons.wikimedia.org/w/api.php?{urlencode(params)}"
+    logger.info(f"searching videos: {query_url}, with proxies: {config.proxy}")
+
+    headers = {
+        # Wikimedia API 礼仪要求可识别的 User-Agent。
+        "User-Agent": "MoneyPrinterTurbo (https://github.com/harry0703/MoneyPrinterTurbo)"
+    }
+
+    try:
+        r = requests.get(
+            query_url,
+            headers=headers,
+            proxies=config.proxy,
+            verify=_get_tls_verify(),
+            timeout=(30, 60),
+        )
+        response = r.json()
+        video_items: List[MaterialInfo] = []
+        pages = ((response.get("query") or {}).get("pages")) or {}
+        if not pages:
+            logger.error(f"search videos failed: {response}")
+            return video_items
+
+        for page in pages.values():
+            info_list = page.get("videoinfo") or []
+            if not info_list:
+                continue
+            info = info_list[0]
+            try:
+                duration = int(float(info.get("duration") or 0))
+            except (TypeError, ValueError):
+                continue
+            if duration < minimum_duration:
+                continue
+
+            # 优先选择"达到参考宽度里最小"的转码档位以节省带宽;
+            # 都不达标时退回最大档位,最后兜底原始文件。
+            derivatives = [
+                d
+                for d in (info.get("derivatives") or [])
+                if d.get("src") and int(d.get("width") or 0) > 0
+            ]
+            sufficient = [
+                d for d in derivatives if int(d["width"]) >= preferred_width
+            ]
+            if sufficient:
+                src = min(sufficient, key=lambda d: int(d["width"]))["src"]
+            elif derivatives:
+                src = max(derivatives, key=lambda d: int(d["width"]))["src"]
+            else:
+                src = info.get("url")
+            if not src:
+                continue
+
+            item = MaterialInfo()
+            item.provider = "wikimedia"
+            item.url = src
+            item.duration = duration
+            video_items.append(item)
+        return video_items
+    except Exception as e:
+        logger.error(f"search videos failed: {str(e)}")
+
+    return []
+
+
 def save_video(video_url: str, save_dir: str = "") -> str:
     if not save_dir:
         save_dir = utils.storage_dir("cache_videos")
@@ -316,6 +414,8 @@ def download_videos(
         search_videos = search_videos_pixabay
     elif source == "coverr":
         search_videos = search_videos_coverr
+    elif source == "wikimedia":
+        search_videos = search_videos_wikimedia
 
     material_directory = config.app.get("material_directory", "").strip()
     if material_directory == "task":
